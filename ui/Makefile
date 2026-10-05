@@ -72,13 +72,16 @@ all: $(EBOOT_BIN)
 
 # ── Final app assembly ──────────────────────────────────────────────────────
 
-$(EBOOT_BIN): $(EBOOT_ELF) | $(DIST)/sce_sys
+$(EBOOT_BIN): $(EBOOT_ELF) | $(DIST)/sce_sys $(DIST)/sce_module
 	$(PS5TOOL) self --sign --in $< --out $@ --magic $(FSELF_MAGIC)
 	cp sce_sys/param.json $(DIST)/sce_sys/param.json
 	[ -f sce_sys/icon0.png ] && cp sce_sys/icon0.png $(DIST)/sce_sys/icon0.png || true
+	cp sce_module/libc.prx $(DIST)/sce_module/libc.prx
 	@echo "App ready: $(DIST)/"
 
 $(DIST)/sce_sys:
+	mkdir -p $@
+$(DIST)/sce_module:
 	mkdir -p $@
 
 $(EBOOT_ELF): $(PIE_ELF)
@@ -148,6 +151,8 @@ deploy: all
 	    curl --ftp-create-dirs -T $(DIST)/sce_sys/icon0.png \
 	        "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)/sce_sys/icon0.png" \
 	    || true
+	curl --ftp-create-dirs -T $(DIST)/sce_module/libc.prx \
+	    "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)/sce_module/libc.prx"
 	@echo "Deployed to PS5."
 
 clean:
