@@ -1,10 +1,38 @@
 {
-    "applicationCategoryType": 0,
-    "localizedParameters": {
-        "defaultLanguage": "en-US",
-        "en-US": {
-            "titleName": "JoyConnect UI"
-        }
-    },
-    "titleId": "JOYC00001"
+  "ageLevel": {
+    "default": 0
+  },
+  "applicationCategoryType": 0,
+  "applicationDrmType": "free",
+  "attribute": 0,
+  "attribute2": 0,
+  "attribute3": 524352,
+  "conceptId": "99003",
+  "contentBadgeType": 1,
+  "contentId": "UP9000-PPSA99003_00-JOYCONNECTUI0001",
+  "contentVersion": "01.000.000",
+  "downloadDataSize": 256,
+  "gameIntent": {
+    "permittedIntents": [
+      {
+        "intentType": "launchActivity"
+      }
+    ]
+  },
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "JoyConnect UI"
+    }
+  },
+  "masterVersion": "01.00",
+  "pubtools": {
+    "creationDate": "2026-10-05 00:00:00",
+    "loudnessSnd0": "-28.00",
+    "toolVersion": "2.00"
+  },
+  "requiredSystemSoftwareVersion": "0x0000000000000000",
+  "sdkVersion": "0x0000000000000000",
+  "titleId": "PPSA99003",
+  "versionFileUri": ""
 }

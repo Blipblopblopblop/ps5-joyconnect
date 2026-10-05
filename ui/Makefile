@@ -1,7 +1,7 @@
 SDK       := /home/ali/PS5/PS5_PayloadSDK
 PS5TOOL   := /home/ali/PS5/PS5_Vulkan/build/host/ps5-native-tool
 
-TITLE_ID  := JOYC00001
+TITLE_ID  := PPSA99003
 PARENT    := ..
 
 # Toolchain
