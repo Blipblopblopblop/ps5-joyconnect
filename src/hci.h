@@ -30,6 +30,13 @@
 #define HCI_WRITE_VOICE_SETTING         0x0c26
 #define HCI_HOST_BUFFER_SIZE            0x0c33
 
+/* HCI commands — SSP and inquiry cancel */
+#define HCI_INQUIRY_CANCEL              0x0402
+#define HCI_WRITE_SIMPLE_PAIRING_MODE   0x0c56
+#define HCI_IO_CAPABILITY_REPLY         0x042b
+#define HCI_USER_CONFIRM_REPLY          0x042c
+#define HCI_USER_CONFIRM_NEG_REPLY      0x042d
+
 /* HCI event codes */
 #define HCI_EVT_INQUIRY_COMPLETE        0x01
 #define HCI_EVT_INQUIRY_RESULT          0x02
@@ -46,6 +53,10 @@
 #define HCI_EVT_MAX_SLOTS_CHANGE        0x1b
 #define HCI_EVT_INQUIRY_RESULT_WITH_RSSI 0x22
 #define HCI_EVT_EXT_INQUIRY_RESULT      0x2f
+#define HCI_EVT_IO_CAPABILITY_REQUEST   0x31
+#define HCI_EVT_IO_CAPABILITY_RESPONSE  0x32
+#define HCI_EVT_USER_CONFIRM_REQUEST    0x33
+#define HCI_EVT_SIMPLE_PAIRING_COMPLETE 0x36
 
 /* Max ACL credits we will use — leaves headroom for system DualSense traffic */
 #define HCI_MAX_OUR_CREDITS             5
@@ -91,6 +102,10 @@ int  hci_acl_write(uint16_t handle, uint8_t pb, const void *data, int data_len);
 /* Register callbacks (only one of each). ctx passed back to callbacks. */
 void hci_set_evt_cb(hci_evt_cb_t cb, void *ctx);
 void hci_set_acl_cb(hci_acl_cb_t cb, void *ctx);
+
+/* Secondary event callback — called for ALL events alongside the primary.
+ * Used by bt_mgr for inquiry results and SSP pairing events. */
+void hci_set_scan_cb(hci_evt_cb_t cb, void *ctx);
 
 /* Must be called in a loop from a dedicated thread */
 void hci_pump(void);

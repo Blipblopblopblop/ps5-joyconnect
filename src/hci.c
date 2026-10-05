@@ -86,6 +86,8 @@ static hci_evt_cb_t g_evt_cb;
 static void        *g_evt_ctx;
 static hci_acl_cb_t g_acl_cb;
 static void        *g_acl_ctx;
+static hci_evt_cb_t g_scan_cb;
+static void        *g_scan_ctx;
 
 /* Sync command wait */
 static volatile int  g_sync_done;
@@ -154,7 +156,9 @@ static void dispatch_event(const uint8_t *buf, int len) {
         }
     }
 
-    /* Forward to application callback */
+    /* Forward to application callback(s) */
+    if (g_scan_cb)
+        g_scan_cb(evt_code, p, plen, g_scan_ctx);
     if (g_evt_cb)
         g_evt_cb(evt_code, p, plen, g_evt_ctx);
 }
@@ -272,8 +276,9 @@ int hci_acl_write(uint16_t handle, uint8_t pb, const void *data, int data_len) {
     return 1;
 }
 
-void hci_set_evt_cb(hci_evt_cb_t cb, void *ctx) { g_evt_cb = cb; g_evt_ctx = ctx; }
-void hci_set_acl_cb(hci_acl_cb_t cb, void *ctx) { g_acl_cb = cb; g_acl_ctx = ctx; }
+void hci_set_evt_cb(hci_evt_cb_t cb, void *ctx)  { g_evt_cb  = cb; g_evt_ctx  = ctx; }
+void hci_set_acl_cb(hci_acl_cb_t cb, void *ctx)  { g_acl_cb  = cb; g_acl_ctx  = ctx; }
+void hci_set_scan_cb(hci_evt_cb_t cb, void *ctx) { g_scan_cb = cb; g_scan_ctx = ctx; }
 
 void hci_pump(void) {
     uint8_t slot = 0xff;

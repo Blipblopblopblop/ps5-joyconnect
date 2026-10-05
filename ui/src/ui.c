@@ -152,49 +152,88 @@ static void draw_joycon(void) {
 }
 
 /* -----------------------------------------------------------------------
- * Audio screen
+ * Audio screen — three modes: action menu, scan results, pairing
  * ----------------------------------------------------------------------- */
-typedef struct { const char *label; int cmd; } hp_item_t;
-#define HP_CONNECT    0
-#define HP_DISCONNECT 1
-#define HP_BACK       2
-static const hp_item_t hp_items[] = {
-    {"CONNECT",    HP_CONNECT},
-    {"DISCONNECT", HP_DISCONNECT},
-    {"BACK",       HP_BACK},
-};
-#define HP_COUNT 3
 
-static int g_hp_sel = 0;
+/* Sub-modes */
+#define HP_MODE_MENU  0   /* default action menu */
+#define HP_MODE_SCAN  1   /* showing scan results */
+
+static int g_hp_mode    = HP_MODE_MENU;
+static int g_hp_sel     = 0;   /* selection in action menu */
+static int g_scan_sel   = 0;   /* selection in device list */
+
+/* Action menu */
+typedef struct { const char *label; int cmd; } hp_item_t;
+#define HP_ACT_SCAN       0
+#define HP_ACT_CONNECT    1
+#define HP_ACT_DISCONNECT 2
+#define HP_ACT_BACK       3
+static const hp_item_t hp_items[] = {
+    {"SCAN FOR HEADPHONES", HP_ACT_SCAN},
+    {"CONNECT SAVED",       HP_ACT_CONNECT},
+    {"DISCONNECT",          HP_ACT_DISCONNECT},
+    {"BACK",                HP_ACT_BACK},
+};
+#define HP_COUNT 4
 
 static void draw_audio(void) {
-    draw_title("BLUETOOTH AUDIO");
-    draw_hint("CROSS SELECT  CIRCLE BACK");
     bt_status_t st = bt_mgr_status();
 
+    draw_title("BLUETOOTH AUDIO");
+
+    /* Status bar */
     int y = BODY_Y;
-    gfx_draw_str(MARGIN, y, "SAVED ADDR:", ITEM_S, COL_GREY);
-    gfx_draw_str(MARGIN + 330, y, st.hp_addr, ITEM_S, COL_WHITE);
-
-    y += ITEM_H;
-    gfx_draw_str(MARGIN, y, "STATUS:", ITEM_S, COL_GREY);
-    draw_badge(MARGIN + 200, y - 2, hp_str(st.hp), COL_PANEL, hp_col(st.hp));
-
-    y += ITEM_H + 20;
+    gfx_draw_str(MARGIN, y, "SAVED:", HINT_S, COL_GREY);
+    gfx_draw_str(MARGIN + 110, y, st.hp_addr, HINT_S, COL_WHITE);
+    y += 28;
+    gfx_draw_str(MARGIN, y, "STATUS:", HINT_S, COL_GREY);
+    draw_badge(MARGIN + 110, y - 2, hp_str(st.hp), COL_PANEL, hp_col(st.hp));
+    y += 28;
     gfx_fill_rect(MARGIN, y, FRAME_W - MARGIN*2, 2, COL_BORDER);
-    y += 20;
+    y += 14;
 
-    for (int i = 0; i < HP_COUNT; i++, y += ITEM_H) {
-        if (i == g_hp_sel) {
-            gfx_fill_rect(MARGIN - 8, y - 8, 500, ITEM_H - 4, COL_SELECT);
-            gfx_draw_str(MARGIN, y, hp_items[i].label, ITEM_S, COL_WHITE);
+    if (g_hp_mode == HP_MODE_MENU) {
+        draw_hint("CROSS SELECT  CIRCLE BACK");
+        for (int i = 0; i < HP_COUNT; i++, y += 56) {
+            if (i == g_hp_sel) {
+                gfx_fill_rect(MARGIN - 8, y - 6, 700, 52, COL_SELECT);
+                gfx_draw_str(MARGIN, y, hp_items[i].label, ITEM_S, COL_WHITE);
+            } else {
+                gfx_draw_str(MARGIN, y, hp_items[i].label, ITEM_S, COL_GREY);
+            }
+        }
+    } else {
+        /* HP_MODE_SCAN — device list */
+        if (st.hp == HP_SCANNING) {
+            draw_hint("CIRCLE CANCEL SCAN");
+            gfx_draw_str(MARGIN, y, "SCANNING...", ITEM_S, COL_YELLOW);
+            y += ITEM_H;
         } else {
-            gfx_draw_str(MARGIN, y, hp_items[i].label, ITEM_S, COL_GREY);
+            draw_hint("CROSS PAIR  CIRCLE BACK  SQUARE RESCAN");
+        }
+        if (st.dev_count == 0 && st.scan_done) {
+            gfx_draw_str(MARGIN, y, "NO DEVICES FOUND", ITEM_S, COL_DIM);
+        } else {
+            for (int i = 0; i < st.dev_count; i++, y += 56) {
+                int sel = (i == g_scan_sel) && (st.hp != HP_SCANNING);
+                if (sel) {
+                    gfx_fill_rect(MARGIN - 8, y - 6, FRAME_W - MARGIN*2 + 16, 52, COL_SELECT);
+                }
+                uint32_t nc = sel ? COL_WHITE : COL_GREY;
+                /* Device name (uppercase) */
+                gfx_draw_str(MARGIN, y, st.devs[i].name, ITEM_S, nc);
+                /* Class badge */
+                uint32_t maj = (st.devs[i].cod >> 8) & 0x1F;
+                const char *badge = (maj == 0x04) ? "AUDIO" :
+                                    (maj == 0x02) ? "PHONE" : "DEVICE";
+                draw_badge(FRAME_W - MARGIN - 200, y - 2, badge, COL_PANEL, COL_HINT);
+            }
+        }
+        if (st.hp == HP_PAIRING || st.hp == HP_CONNECTING) {
+            gfx_draw_str(MARGIN, HINT_Y - 30, "PAIRING...", ITEM_S, COL_YELLOW);
         }
     }
-
-    gfx_draw_str(MARGIN, y + 30,
-        "PAIR HEADPHONE: RUN GHOST-TOOTHAPI-134-FIX2.ELF FIRST", HINT_S, COL_HINT);
 }
 
 /* -----------------------------------------------------------------------
@@ -255,6 +294,7 @@ int ui_update(void) {
         }
         if (input_just(BTN_CROSS)) {
             g_screen = main_items[g_main_sel].dest;
+            if (g_screen == SCREEN_AUDIO) g_hp_mode = HP_MODE_MENU;
             dirty = 1;
         }
         if (input_just(BTN_OPTIONS)) {
@@ -273,8 +313,8 @@ int ui_update(void) {
         }
         if (input_just(BTN_CROSS)) {
             switch (jc_items[g_jc_sel].cmd) {
-            case JC_SCAN_START: bt_mgr_scan_start(); dirty = 1; break;
-            case JC_SCAN_STOP:  bt_mgr_scan_stop();  dirty = 1; break;
+            case JC_SCAN_START: bt_mgr_scan_joycon_start(); dirty = 1; break;
+            case JC_SCAN_STOP:  bt_mgr_scan_joycon_stop();  dirty = 1; break;
             case JC_BACK:       g_screen = SCREEN_MAIN; dirty = 1; break;
             }
         }
@@ -290,32 +330,69 @@ int ui_update(void) {
         }
         break;
 
-    case SCREEN_AUDIO:
-        if (input_just(BTN_UP)) {
-            g_hp_sel = (g_hp_sel > 0) ? g_hp_sel - 1 : HP_COUNT - 1;
-            dirty = 1;
-        }
-        if (input_just(BTN_DOWN)) {
-            g_hp_sel = (g_hp_sel + 1) % HP_COUNT;
-            dirty = 1;
-        }
-        if (input_just(BTN_CROSS)) {
-            switch (hp_items[g_hp_sel].cmd) {
-            case HP_CONNECT:    bt_mgr_hp_connect();    dirty = 1; break;
-            case HP_DISCONNECT: bt_mgr_hp_disconnect(); dirty = 1; break;
-            case HP_BACK:       g_screen = SCREEN_MAIN; dirty = 1; break;
+    case SCREEN_AUDIO: {
+        bt_status_t ast = bt_mgr_status();
+        if (g_hp_mode == HP_MODE_MENU) {
+            if (input_just(BTN_UP)) {
+                g_hp_sel = (g_hp_sel > 0) ? g_hp_sel - 1 : HP_COUNT - 1;
+                dirty = 1;
             }
-        }
-        if (input_just(BTN_CIRCLE)) {
-            g_screen = SCREEN_MAIN;
-            dirty = 1;
+            if (input_just(BTN_DOWN)) {
+                g_hp_sel = (g_hp_sel + 1) % HP_COUNT;
+                dirty = 1;
+            }
+            if (input_just(BTN_CROSS)) {
+                switch (hp_items[g_hp_sel].cmd) {
+                case HP_ACT_SCAN:
+                    g_hp_mode = HP_MODE_SCAN;
+                    g_scan_sel = 0;
+                    bt_mgr_hp_scan_start();
+                    dirty = 1;
+                    break;
+                case HP_ACT_CONNECT:    bt_mgr_hp_connect();    dirty = 1; break;
+                case HP_ACT_DISCONNECT: bt_mgr_hp_disconnect(); dirty = 1; break;
+                case HP_ACT_BACK:       g_screen = SCREEN_MAIN; dirty = 1; break;
+                }
+            }
+            if (input_just(BTN_CIRCLE)) {
+                g_screen = SCREEN_MAIN;
+                dirty = 1;
+            }
+        } else {
+            /* Scan mode */
+            if (input_just(BTN_UP)) {
+                if (ast.dev_count > 0)
+                    g_scan_sel = (g_scan_sel > 0) ? g_scan_sel - 1 : ast.dev_count - 1;
+                dirty = 1;
+            }
+            if (input_just(BTN_DOWN)) {
+                if (ast.dev_count > 0)
+                    g_scan_sel = (g_scan_sel + 1) % ast.dev_count;
+                dirty = 1;
+            }
+            if (input_just(BTN_CROSS) && ast.dev_count > 0 && ast.hp != HP_SCANNING) {
+                bt_mgr_hp_pair(g_scan_sel);
+                dirty = 1;
+            }
+            if (input_just(BTN_SQUARE)) {
+                /* Rescan */
+                g_scan_sel = 0;
+                bt_mgr_hp_scan_start();
+                dirty = 1;
+            }
+            if (input_just(BTN_CIRCLE)) {
+                bt_mgr_hp_scan_stop();
+                g_hp_mode = HP_MODE_MENU;
+                dirty = 1;
+            }
         }
         {
             static int tick2 = 0;
             tick2++;
-            if (tick2 >= 30) { tick2 = 0; dirty = 1; }
+            if (tick2 >= 15) { tick2 = 0; dirty = 1; }
         }
         break;
+    }
 
     case SCREEN_STATUS:
         if (input_just(BTN_CIRCLE) || input_just(BTN_CROSS)) {
