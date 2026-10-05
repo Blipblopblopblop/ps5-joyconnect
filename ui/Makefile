@@ -1,14 +1,23 @@
-PS5_HOST ?= ps5
-PS5_PORT ?= 9021
+SDK       := /home/ali/PS5/PS5_PayloadSDK
+PS5TOOL   := /home/ali/PS5/PS5_Vulkan/build/host/ps5-native-tool
 
-ifdef PS5_PAYLOAD_SDK
-    include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
-else
-    $(error PS5_PAYLOAD_SDK is undefined)
-endif
+TITLE_ID  := JOYC00001
+PARENT    := ..
 
-ELF     := joyconnect-ui.elf
-PARENT  := ..
+# Toolchain
+CC        := PS5_PAYLOAD_SDK=$(SDK) $(SDK)/bin/prospero-clang
+# prospero-clang18 uses system clang with correct PS5 target flags
+LD        := $(SDK)/bin/prospero-lld
+
+# Module constants
+MODULE_SDK     := 0x02000009
+COMPANION_SDK  := 0x08050001
+FSELF_MAGIC    := 0x1D3D154F
+
+# Build dirs
+BUILD     := build
+OBJ       := $(BUILD)/obj
+DIST      := dist/$(TITLE_ID)
 
 UI_SRCS := src/main.c \
            src/gfx.c \
@@ -27,15 +36,19 @@ BT_SRCS := $(PARENT)/src/log.c \
 SBC_SRCS := $(PARENT)/sbc/sbc.c \
             $(PARENT)/sbc/sbc_primitives.c
 
-UI_OBJS  := $(UI_SRCS:.c=.o)
-BT_OBJS  := $(BT_SRCS:.c=.o)
-SBC_OBJS := $(SBC_SRCS:.c=.o)
+ALL_C_SRCS := $(UI_SRCS) $(BT_SRCS) $(SBC_SRCS)
 
-CFLAGS     := -Wall -Werror -O2 -g \
-              -Isrc \
-              -I$(PARENT)/src \
-              -I$(PARENT)/sbc \
-              -DSBC_TABLES_CONST
+# Object files under build/obj, preserving relative paths
+ui_obj    = $(patsubst %.c,$(OBJ)/%.o,$(UI_SRCS))
+bt_obj    = $(patsubst %.c,$(OBJ)/%.o,$(BT_SRCS))
+sbc_obj   = $(patsubst %.c,$(OBJ)/%.o,$(SBC_SRCS))
+
+CFLAGS := -Wall -Werror -O2 -g \
+          -Isrc \
+          -I$(PARENT)/src \
+          -I$(PARENT)/sbc \
+          -DSBC_TABLES_CONST
+
 
 SBC_CFLAGS := -O2 -g \
               -I$(PARENT)/sbc \
@@ -46,27 +59,96 @@ SBC_CFLAGS := -O2 -g \
               -USBC_BUILD_WITH_NEON_SUPPORT \
               -USBC_BUILD_WITH_IWMMXT_SUPPORT
 
-LDFLAGS    := -lpthread \
-              -lSceNet \
-              -lSceNotification \
-              -lScePad \
-              -lSceUserService \
-              -lSceVideoOut \
-              -lSceSystemService
+crt_obj   = $(OBJ)/src/app_crt.o
+ALL_OBJS  := $(crt_obj) $(ui_obj) $(bt_obj) $(sbc_obj)
 
-all: $(ELF)
+PIE_ELF   := $(BUILD)/llvm-pie.elf
+EBOOT_ELF := $(BUILD)/eboot.elf
+EBOOT_BIN := $(DIST)/eboot.bin
 
-$(ELF): $(UI_OBJS) $(BT_OBJS) $(SBC_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+.PHONY: all clean deploy
 
-$(SBC_OBJS): %.o: %.c
-	$(CC) $(SBC_CFLAGS) -c -o $@ $<
+all: $(EBOOT_BIN)
 
-%.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+# ── Final app assembly ──────────────────────────────────────────────────────
+
+$(EBOOT_BIN): $(EBOOT_ELF) | $(DIST)/sce_sys
+	$(PS5TOOL) self --sign --in $< --out $@ --magic $(FSELF_MAGIC)
+	cp sce_sys/param.json $(DIST)/sce_sys/param.json
+	[ -f sce_sys/icon0.png ] && cp sce_sys/icon0.png $(DIST)/sce_sys/icon0.png || true
+	@echo "App ready: $(DIST)/"
+
+$(DIST)/sce_sys:
+	mkdir -p $@
+
+$(EBOOT_ELF): $(PIE_ELF)
+	$(PS5TOOL) link \
+	    --in $< --out $@ \
+	    --stub-dir $(SDK)/target/lib \
+	    --module-sdk $(MODULE_SDK) \
+	    --companion-sdk $(COMPANION_SDK) \
+	    --file-name eboot.elf
+
+# ── PIE link (prospero-lld + ps5-pie.ld) ───────────────────────────────────
+
+$(PIE_ELF): $(ALL_OBJS)
+	$(LD) \
+	    -T /home/ali/PS5/PS5_Vulkan/tooling/native/ps5-pie.ld \
+	    --eh-frame-hdr \
+	    --version-script /home/ali/PS5/PS5_Vulkan/tooling/native/app-symbols.map \
+	    --exclude-libs=ALL \
+	    -e _start \
+	    -o $@ \
+	    $^ \
+	    $(SDK)/target/lib/libps5platform.a \
+	    -L$(SDK)/target/lib \
+	    --as-needed \
+	    -lSceLibcInternal \
+	    -lpthread \
+	    -lkernel_sys \
+	    -lSceNet \
+	    -lSceNotification \
+	    -lScePad \
+	    -lSceUserService \
+	    -lSceVideoOut \
+	    -lSceSystemService
+
+# ── Compile rules ───────────────────────────────────────────────────────────
+
+$(OBJ)/src/%.o: src/%.c | $(OBJ)/src
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -c -o $@ $<
+
+$(OBJ)/$(PARENT)/src/%.o: $(PARENT)/src/%.c | $(OBJ)/$(PARENT)/src
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -c -o $@ $<
+
+$(OBJ)/$(PARENT)/sbc/%.o: $(PARENT)/sbc/%.c | $(OBJ)/$(PARENT)/sbc
+	$(CC) $(SBC_CFLAGS) -ffunction-sections -fdata-sections -c -o $@ $<
+
+# ── Directory creation ──────────────────────────────────────────────────────
+
+$(OBJ)/src:
+	mkdir -p $@
+$(OBJ)/$(PARENT)/src:
+	mkdir -p $@
+$(OBJ)/$(PARENT)/sbc:
+	mkdir -p $@
+
+# ── Deploy via FTP ──────────────────────────────────────────────────────────
+
+PS5_FTP_HOST ?= 192.168.4.87
+PS5_FTP_PORT ?= 2121
+
+deploy: all
+	@echo "Uploading $(DIST) -> ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)"
+	curl --ftp-create-dirs -T $(DIST)/eboot.bin \
+	    "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)/eboot.bin"
+	curl --ftp-create-dirs -T $(DIST)/sce_sys/param.json \
+	    "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)/sce_sys/param.json"
+	[ -f $(DIST)/sce_sys/icon0.png ] && \
+	    curl --ftp-create-dirs -T $(DIST)/sce_sys/icon0.png \
+	        "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)/sce_sys/icon0.png" \
+	    || true
+	@echo "Deployed to PS5."
 
 clean:
-	rm -f $(UI_OBJS) $(BT_OBJS) $(SBC_OBJS) $(ELF)
-
-send: $(ELF)
-	$(PROSPERO_SEND) $(PS5_HOST) $(PS5_PORT) $(ELF)
+	rm -rf $(BUILD) $(DIST)
