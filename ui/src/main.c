@@ -21,41 +21,35 @@ static int acquire_lock(void) {
 static void release_lock(void) { unlink(LOCKFILE); }
 
 int main(void) {
-    /* system() spawns a shell which is blocked in proper PS5 app sandbox */
     mkdir("/data/joyconnect", 0777);
 
-    notify("JC: init...");
-
     if (!acquire_lock()) {
-        notify("JC: already running");
+        notify("JoyConnectUI already running");
         return 0;
     }
 
     log_open();
     log_line("JoyConnectUI starting");
-    notify("JC: gfx...");
 
     if (!gfx_init()) {
-        notify("JC: gfx FAIL");
+        notify("JoyConnectUI: VideoOut init failed");
         log_line("gfx_init failed");
         release_lock();
         return 1;
     }
 
-    notify("JC: input...");
     if (!input_init()) {
         log_line("input_init failed (will continue without pad navigation)");
     }
 
-    notify("JC: bt...");
     if (!bt_mgr_init()) {
         log_line("bt_mgr_init failed");
-        notify("JC: bt FAIL");
+        notify("JoyConnectUI: BT init failed");
         release_lock();
         return 1;
     }
 
-    notify("JC: ready!");
+    notify("JoyConnectUI ready");
     ui_init();
 
     /* Initial draw */

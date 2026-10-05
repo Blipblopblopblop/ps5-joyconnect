@@ -61,14 +61,41 @@ SBC_CFLAGS := -O2 -g \
 
 crt_obj   = $(OBJ)/src/app_crt.o
 ALL_OBJS  := $(crt_obj) $(ui_obj) $(bt_obj) $(sbc_obj)
+# Payload ELF uses PayloadSDK's own crt1.o (provided by CC linker driver)
+ELF_OBJS  := $(ui_obj) $(bt_obj) $(sbc_obj)
 
 PIE_ELF   := $(BUILD)/llvm-pie.elf
 EBOOT_ELF := $(BUILD)/eboot.elf
 EBOOT_BIN := $(DIST)/eboot.bin
+PAYLOAD_ELF := $(BUILD)/joyconnect-ui.elf
 
-.PHONY: all clean deploy
+.PHONY: all elf clean deploy deploy-elf
 
-all: $(EBOOT_BIN)
+all: elf
+
+# ── Payload ELF (full permissions via GoldHEN payload launcher) ────────────
+
+elf: $(PAYLOAD_ELF)
+
+$(PAYLOAD_ELF): $(ELF_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ \
+	    -lpthread \
+	    -lSceNet \
+	    -lSceNotification \
+	    -lScePad \
+	    -lSceUserService \
+	    -lSceVideoOut \
+	    -lSceSystemService
+
+deploy-elf: elf
+	@echo "Deploying payload ELF -> ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/"
+	curl --ftp-create-dirs -T $(PAYLOAD_ELF) \
+	    "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/joyconnect-ui.elf"
+	@echo "Done."
+
+# ── Proper app (eboot.bin) — needs shadow mount, runs sandboxed ────────────
+
+app: $(EBOOT_BIN)
 
 # ── Final app assembly ──────────────────────────────────────────────────────
 
@@ -141,7 +168,9 @@ $(OBJ)/$(PARENT)/sbc:
 PS5_FTP_HOST ?= 192.168.4.87
 PS5_FTP_PORT ?= 2121
 
-deploy: all
+deploy: deploy-elf
+
+deploy-app: app
 	@echo "Uploading $(DIST) -> ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)"
 	curl --ftp-create-dirs -T $(DIST)/eboot.bin \
 	    "ftp://$(PS5_FTP_HOST):$(PS5_FTP_PORT)/data/homebrew/$(TITLE_ID)/eboot.bin"
